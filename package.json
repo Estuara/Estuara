@@ -1,0 +1,12 @@
+{
+  "name": "estuara",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --dir apps/web dev",
+    "build:web": "pnpm --dir apps/web build",
+    "lint:web": "pnpm --dir apps/web lint",
+    "test:api": "uv run --project apps/api pytest apps/api/tests"
+  },
+  "packageManager": "pnpm@10.15.1"
+}
+
