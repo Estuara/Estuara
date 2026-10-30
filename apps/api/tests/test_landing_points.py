@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import numpy as np
 import pytest
 
 from estuara_api.mobility.landing_points import (
@@ -134,3 +135,36 @@ def test_model_report_metadata() -> None:
     assert report.radius_meters == 150
     assert report.min_visits == 2
     assert report.trained_at.tzinfo is not None
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_numpy_dbscan_matches_scikit_learn(seed: int) -> None:
+    # scikit-learn is a dev-only reference; the runtime uses the NumPy port.
+    from sklearn.cluster import DBSCAN
+
+    from estuara_api.mobility.landing_points import EARTH_RADIUS_METERS, dbscan_haversine
+
+    rng = np.random.default_rng(seed)
+    centres = rng.uniform([6.40, 3.35], [6.50, 3.45], size=(5, 2))
+    clouds = [centre + rng.normal(0, 0.0006, size=(rng.integers(1, 12), 2)) for centre in centres]
+    scattered = rng.uniform([6.40, 3.35], [6.50, 3.45], size=(15, 2))
+    points = np.radians(np.vstack([*clouds, scattered]))
+    eps = 120 / EARTH_RADIUS_METERS
+
+    expected = DBSCAN(eps=eps, min_samples=2, metric="haversine").fit_predict(points)
+    np.testing.assert_array_equal(dbscan_haversine(points, eps, 2), expected)
+
+
+def test_numpy_dbscan_matches_scikit_learn_on_sample_stops() -> None:
+    from sklearn.cluster import DBSCAN
+
+    from estuara_api.mobility.analysis import analyse_csv
+    from estuara_api.mobility.landing_points import EARTH_RADIUS_METERS, dbscan_haversine
+
+    from .test_analysis import SAMPLE_CSV_PATH
+
+    result = analyse_csv(SAMPLE_CSV_PATH.read_bytes(), "sample.csv", data_status="simulated")
+    points = np.radians([[stop.latitude, stop.longitude] for stop in result.stops])
+    eps = 120 / EARTH_RADIUS_METERS
+    expected = DBSCAN(eps=eps, min_samples=2, metric="haversine").fit_predict(points)
+    np.testing.assert_array_equal(dbscan_haversine(points, eps, 2), expected)

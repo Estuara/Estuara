@@ -11,6 +11,15 @@ This is unsupervised clustering, not supervised training. There are no
 labelled landing points to learn from yet, so the model cannot report
 precision, recall or accuracy. It can only describe the structure it found in
 the stop observations it was given.
+
+DBSCAN is implemented here in NumPy rather than imported from scikit-learn.
+scikit-learn pulls in SciPy, which together add ~58 MB to a Cloudflare Python
+Worker bundle (over the 64 MiB limit), cannot be imported during Worker
+startup, and took ~13 s to import lazily on a cold start. The port follows
+scikit-learn's algorithm (core points have at least `min_samples` neighbours
+within `eps`, counting themselves; clusters expand depth-first from core
+points in index order), and `tests/test_landing_points.py` checks that its
+labels match scikit-learn's.
 """
 
 from __future__ import annotations
@@ -20,9 +29,12 @@ from datetime import UTC, datetime
 from typing import Literal
 
 import numpy as np
-from sklearn.cluster import DBSCAN
 
 EARTH_RADIUS_METERS = 6_371_008.8
+# Upper bound on pairwise-distance matrix cells held in memory at once
+# (~4 MB of float64 per temporary array), so large stop sets stay well inside
+# the 128 MB Worker memory limit.
+_MAX_MATRIX_CELLS = 500_000
 
 MODEL_NAME = "landing_point_clusterer"
 MODEL_VERSION = "0.1.0"
@@ -101,6 +113,51 @@ def _evidence_score(visit_count: int, vessel_count: int, min_visits: int) -> flo
     return round(0.6 * visit_component + 0.4 * vessel_component, 3)
 
 
+def _haversine_neighbourhoods(coordinates_rad: np.ndarray, eps_radians: float) -> list[np.ndarray]:
+    """Indices of every point within `eps_radians` great-circle distance of each point.
+
+    Uses the same haversine formula as scikit-learn's `metric="haversine"`,
+    processed in row chunks so memory stays bounded.
+    """
+    count = len(coordinates_rad)
+    lat, lon = coordinates_rad[:, 0], coordinates_rad[:, 1]
+    cos_lat = np.cos(lat)
+    chunk = max(1, _MAX_MATRIX_CELLS // max(count, 1))
+    neighbourhoods: list[np.ndarray] = []
+    for start in range(0, count, chunk):
+        stop = min(start + chunk, count)
+        d_lat = lat[start:stop, None] - lat[None, :]
+        d_lon = lon[start:stop, None] - lon[None, :]
+        value = (
+            np.sin(d_lat / 2) ** 2
+            + cos_lat[start:stop, None] * cos_lat[None, :] * np.sin(d_lon / 2) ** 2
+        )
+        distance = 2 * np.arcsin(np.sqrt(np.clip(value, 0.0, 1.0)))
+        neighbourhoods.extend(np.flatnonzero(row) for row in distance <= eps_radians)
+    return neighbourhoods
+
+
+def dbscan_haversine(coordinates_rad: np.ndarray, eps_radians: float, min_samples: int) -> np.ndarray:
+    """DBSCAN cluster labels (-1 for noise) for [lat, lon] points in radians."""
+    neighbourhoods = _haversine_neighbourhoods(coordinates_rad, eps_radians)
+    is_core = np.array([len(neighbours) >= min_samples for neighbours in neighbourhoods])
+    labels = np.full(len(coordinates_rad), -1, dtype=int)
+    label = 0
+    for seed in range(len(coordinates_rad)):
+        if labels[seed] != -1 or not is_core[seed]:
+            continue
+        stack = [seed]
+        while stack:
+            point = stack.pop()
+            if labels[point] != -1:
+                continue
+            labels[point] = label
+            if is_core[point]:
+                stack.extend(int(n) for n in neighbourhoods[point] if labels[n] == -1)
+        label += 1
+    return labels
+
+
 class LandingPointClusterer:
     """Discovers recurring landing-point candidates from detected vessel stops.
 
@@ -167,8 +224,7 @@ class LandingPointClusterer:
         coordinates_deg = np.array([[stop.latitude, stop.longitude] for stop in stops])
         coordinates_rad = np.radians(coordinates_deg)
         eps_radians = self.radius_meters / EARTH_RADIUS_METERS
-        model = DBSCAN(eps=eps_radians, min_samples=self.min_visits, metric="haversine")
-        return model.fit_predict(coordinates_rad)
+        return dbscan_haversine(coordinates_rad, eps_radians, self.min_visits)
 
     def _build_candidates(
         self, stops: list[StopObservation], labels: np.ndarray

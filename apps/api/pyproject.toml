@@ -3,14 +3,14 @@ name = "estuara-api"
 version = "0.1.0"
 description = "Marine mobility intelligence API for Estuara"
 requires-python = ">=3.11"
+# Runtime dependencies must also resolve inside Cloudflare Python Workers
+# (Pyodide). Keep this list minimal: see docs/DEPLOYMENT.md.
 dependencies = [
   "fastapi>=0.115,<1",
   "numpy>=1.26,<3",
-  "pandas>=2.2,<3",
+  "pandas>=2.2,<4",
   "pydantic>=2.10,<3",
   "python-multipart>=0.0.20,<1",
-  "scikit-learn>=1.5,<2",
-  "uvicorn[standard]>=0.34,<1",
 ]
 
 [dependency-groups]
@@ -18,6 +18,13 @@ dev = [
   "httpx>=0.28,<1",
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
+  # Local server only; Workers provide their own ASGI adapter.
+  "uvicorn[standard]>=0.34,<1",
+  # Reference implementation used to verify the NumPy DBSCAN port.
+  "scikit-learn>=1.5,<2",
+  # Cloudflare Python Workers tooling (pywrangler).
+  "workers-py>=1.17",
+  "workers-runtime-sdk>=1.9",
 ]
 
 [build-system]
