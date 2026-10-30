@@ -9,15 +9,53 @@ class Provenance(BaseModel):
     data_status: Literal["real", "user-provided", "public", "estimated", "modelled", "simulated"]
     processed_at: datetime
     input_rows: int
+    # input_rows == accepted_rows + rejected_rows. Accepted rows include
+    # flagged rows; flagged position jumps are kept here but excluded from
+    # movement geometry (see DataQualityReport.excluded_from_geometry_rows).
     accepted_rows: int
     rejected_rows: int
+    flagged_rows: int = 0
     transformations: list[str]
+    processing_seconds: float | None = None
 
 
 class ValidationIssue(BaseModel):
+    # 1-based data row number in the uploaded CSV (1 = first row after the header).
     row: int | None = None
+    vessel_id: str | None = None
+    timestamp: datetime | None = None
     field: str | None = None
+    code: str
+    disposition: Literal["rejected", "flagged"]
     message: str
+    # The original value as it appeared in the file, before any transformation.
+    value: str | None = None
+
+
+class QualityThresholds(BaseModel):
+    max_plausible_speed_knots: float
+    min_position_jump_km: float
+    jump_reset_after: int
+
+
+class DataQualityReport(BaseModel):
+    rejected_by_reason: dict[str, int]
+    flagged_by_reason: dict[str, int]
+    excluded_from_geometry_rows: int
+    speeds_derived: int
+    speeds_replaced: int
+    thresholds: QualityThresholds
+    issues: list[ValidationIssue]
+    issues_truncated: bool
+
+
+class AnalysisSettings(BaseModel):
+    trip_gap_minutes: int
+    stop_speed_knots: float
+    stop_min_duration_minutes: float
+    landing_radius_meters: float
+    landing_min_visits: int
+    max_plausible_speed_knots: float
 
 
 class StopSummary(BaseModel):
@@ -97,5 +135,7 @@ class MobilityAnalysis(BaseModel):
     stops_geojson: dict[str, Any]
     landing_points_geojson: dict[str, Any]
     provenance: Provenance
+    settings: AnalysisSettings
+    quality: DataQualityReport
     warnings: list[str] = Field(default_factory=list)
 
