@@ -80,16 +80,13 @@ pnpm build
 
 ## Deploy the team preview to Cloudflare
 
-The hosted preview runs as a single Cloudflare Worker: the exported Next.js
-interface is served by Workers Static Assets, and `/api/*` runs the FastAPI
-service on Python Workers. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for
-the rationale, requirements (Workers Paid) and exact commands.
-
-The current Cloudflare account is on the Free plan, which cannot host the
-Python analysis Worker (compressed-bundle and CPU limits), so no preview URL
-is live yet. The Worker itself is fully verified one step short of that: the
-bundle uploads, and the complete sample analysis plus an 11-point browser
-smoke test pass against `wrangler dev`, which uses the production runtime.
+The hosted preview is live on free hosting: the interface at
+[estuara-preview.pages.dev](https://estuara-preview.pages.dev) (Cloudflare
+Pages) and the analysis API at
+[estuara-api.onrender.com](https://estuara-api.onrender.com) (Render Free).
+Both URLs use free tiers; see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for
+commands, environment variables, free-tier limitations, and the single-Worker
+alternative that needs Workers Paid.
 
 ## Analyse a file without the interface
 
