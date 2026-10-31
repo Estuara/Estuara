@@ -85,6 +85,12 @@ interface is served by Workers Static Assets, and `/api/*` runs the FastAPI
 service on Python Workers. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for
 the rationale, requirements (Workers Paid) and exact commands.
 
+The current Cloudflare account is on the Free plan, which cannot host the
+Python analysis Worker (compressed-bundle and CPU limits), so no preview URL
+is live yet. The Worker itself is fully verified one step short of that: the
+bundle uploads, and the complete sample analysis plus an 11-point browser
+smoke test pass against `wrangler dev`, which uses the production runtime.
+
 ## Analyse a file without the interface
 
 ```bash

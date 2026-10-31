@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "sync-sample": "node scripts/sync-sample.mjs",
+    "smoke-tests": "node scripts/smoke-tests.mjs",
     "dev": "node scripts/sync-sample.mjs && next dev",
     "build": "node scripts/sync-sample.mjs && next build",
     "lint": "eslint .",

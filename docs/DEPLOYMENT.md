@@ -1,5 +1,16 @@
 # Deploying the Estuara team preview to Cloudflare
 
+> **Status as of 2026-10-31:** deployment was attempted against the
+> `Info@spatialcrestco.com` Cloudflare account, which is on the **Free** plan,
+> and is blocked: (1) `limits.cpu_ms` is rejected on the Free plan (API error
+> `100328`, "CPU limits are not supported for the Free plan"), and (2) the
+> verified bundle is 9.3 MB gzip against the Free plan's 3 MB compressed
+> Worker limit. Everything short of the live URL is verified — the upload,
+> bundle and static assets all succeed, and the full drill ran locally through
+> `wrangler dev` (the same workerd runtime) in
+> `apps/web/scripts/smoke-tests.mjs`. Upgrading the account to Workers Paid is
+> the only remaining step; then re-run Step 2 below.
+
 The preview is **one Worker, one URL**: `apps/api/wrangler.jsonc` routes
 `/api/*` and `/health` to the FastAPI app running on Cloudflare Python
 Workers, and serves every other path from Workers Static Assets (the
