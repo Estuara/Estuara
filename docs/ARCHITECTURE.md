@@ -39,9 +39,11 @@ unverified landing-point candidates.
 - Distance is calculated between consecutive WGS 84 coordinates using the haversine formula.
 - These rules are transparent baseline methods, not trained models.
 - A detected stop is evidence for review, not an automatically verified terminal.
-- Landing-point candidates are discovered by fitting a DBSCAN model (haversine
-  distance) over detected stops across trips and vessels. This is unsupervised
-  clustering, not supervised training with labelled targets, and it produces
+- Landing-point candidates are discovered by DBSCAN clustering (haversine
+  distance) over detected stops across trips and vessels — implemented with
+  NumPy so the algorithm runs in the Cloudflare Pyodide runtime, with
+  scikit-learn kept as a dev-only reference to verify equivalence. This is
+  unsupervised clustering, not supervised training with labelled targets, and it produces
   no verified terminal — every candidate is `unverified` until a human review
   process confirms it. See `docs/learning/01_landing_point_discovery.md`.
 

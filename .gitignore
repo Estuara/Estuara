@@ -22,3 +22,6 @@ next-env.d.ts
 python_modules/
 .env.*
 !.env.example
+.venv-workers/
+apps/web/out/
+apps/web/public/data/

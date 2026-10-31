@@ -309,8 +309,8 @@ def _prepare_frame(
     jump_count = int(jumps.is_jump.sum())
     if jump_count:
         transformations.append(
-            f"Excluded {_count(jump_count, 'position-jump observation', 'position-jump observations')} from trip geometry, distance "
-            "and stop detection; they remain listed in the quality report."
+            f"Excluded {_count(jump_count, 'position-jump observation', 'position-jump observations')} "
+            "from trip geometry, distance and stop detection (still listed in the quality report)."
         )
         warnings.append(
             f"{_count(jump_count, 'GPS fix implies', 'GPS fixes imply')} movement faster than "

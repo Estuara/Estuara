@@ -74,8 +74,16 @@ uv run ruff check src tests
 
 cd ../web
 pnpm lint
+pnpm typecheck
 pnpm build
 ```
+
+## Deploy the team preview to Cloudflare
+
+The hosted preview runs as a single Cloudflare Worker: the exported Next.js
+interface is served by Workers Static Assets, and `/api/*` runs the FastAPI
+service on Python Workers. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for
+the rationale, requirements (Workers Paid) and exact commands.
 
 ## Analyse a file without the interface
 

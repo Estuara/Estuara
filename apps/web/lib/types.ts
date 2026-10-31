@@ -54,6 +54,41 @@ export type LandingPointModelReport = {
   trained_at: string;
 };
 
+export type AnalysisSettings = {
+  trip_gap_minutes: number;
+  stop_speed_knots: number;
+  stop_min_duration_minutes: number;
+  landing_radius_meters: number;
+  landing_min_visits: number;
+  max_plausible_speed_knots: number;
+};
+
+export type ValidationIssue = {
+  row: number | null;
+  vessel_id: string | null;
+  timestamp: string | null;
+  field: string | null;
+  code: string;
+  disposition: "rejected" | "flagged";
+  message: string;
+  value: string | null;
+};
+
+export type DataQualityReport = {
+  rejected_by_reason: Record<string, number>;
+  flagged_by_reason: Record<string, number>;
+  excluded_from_geometry_rows: number;
+  speeds_derived: number;
+  speeds_replaced: number;
+  thresholds: {
+    max_plausible_speed_knots: number;
+    min_position_jump_km: number;
+    jump_reset_after: number;
+  };
+  issues: ValidationIssue[];
+  issues_truncated: boolean;
+};
+
 export type MobilityAnalysis = {
   analysis_id: string;
   status: "completed";
@@ -80,7 +115,11 @@ export type MobilityAnalysis = {
     input_rows: number;
     accepted_rows: number;
     rejected_rows: number;
+    flagged_rows: number;
     transformations: string[];
+    processing_seconds: number | null;
   };
+  settings: AnalysisSettings;
+  quality: DataQualityReport;
   warnings: string[];
 };

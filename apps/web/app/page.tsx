@@ -1,11 +1,16 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import type { MobilityAnalysis } from "@/lib/types";
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import QualityPanel from "@/components/QualityPanel";
+import SettingsModal from "@/components/SettingsModal";
+import { AnalysisError, DEFAULT_SETTINGS, ERROR_TITLES, ErrorKind, analyseFile, fetchHealth, loadSampleFile } from "@/lib/api";
+import type { AnalysisSettings, MobilityAnalysis } from "@/lib/types";
 
 const MobilityMap = dynamic(() => import("@/components/MobilityMap"), { ssr: false });
-const API_URL = process.env.NEXT_PUBLIC_ESTUARA_API_URL ?? "http://localhost:8000";
+
+type DataStatus = "simulated" | "user-provided";
+type ErrorState = { kind: ErrorKind; message: string };
 
 function Icon({ name }: { name: string }) {
   const paths: Record<string, string> = {
@@ -25,45 +30,72 @@ function Icon({ name }: { name: string }) {
   );
 }
 
+function toErrorState(reason: unknown): ErrorState {
+  if (reason instanceof AnalysisError) return { kind: reason.kind, message: reason.message };
+  return { kind: "api_failure", message: reason instanceof Error ? reason.message : "The analysis failed unexpectedly." };
+}
+
+function methodNote(settings: AnalysisSettings) {
+  return (
+    `Segments split after a ${settings.trip_gap_minutes}-minute observation gap; they are not verified terminal-to-terminal journeys. ` +
+    `Stops require speeds at or below ${settings.stop_speed_knots} kn for at least ${settings.stop_min_duration_minutes} min. ` +
+    `Landing candidates: DBSCAN, ${settings.landing_radius_meters} m radius, at least ${settings.landing_min_visits} stops. ` +
+    `Speeds above ${settings.max_plausible_speed_knots} kn and unreachable positions are flagged.`
+  );
+}
+
 export default function Home() {
   const [analysis, setAnalysis] = useState<MobilityAnalysis | null>(null);
   const [selectedTrip, setSelectedTrip] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<AnalysisSettings>(DEFAULT_SETTINGS);
+  const [dataset, setDataset] = useState<{ file: File; status: DataStatus } | null>(null);
+  const [maxUploadBytes, setMaxUploadBytes] = useState<number | undefined>(undefined);
 
-  async function analyse(file: File, status: "simulated" | "user-provided") {
+  const analyse = useCallback(async (file: File, status: DataStatus, nextSettings: AnalysisSettings) => {
     setLoading(true);
     setError(null);
-    const form = new FormData();
-    form.append("file", file);
-    form.append("data_status", status);
+    // Close dialogs so progress and any error banner are visible.
+    setUploadOpen(false);
+    setSettingsOpen(false);
     try {
-      const response = await fetch(`${API_URL}/api/v1/mobility/analyse`, { method: "POST", body: form });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.detail ?? "Analysis failed.");
-      setAnalysis(body);
-      setSelectedTrip(body.trips[0]?.trip_id ?? null);
-      setUploadOpen(false);
+      const result = await analyseFile(file, status, nextSettings, maxUploadBytes);
+      setAnalysis(result);
+      setDataset({ file, status });
+      setSettings(nextSettings);
+      setSelectedTrip(result.trips[0]?.trip_id ?? null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The API could not be reached.");
+      // Keep the previous analysis on screen; the banner explains what failed.
+      setError(toErrorState(reason));
     } finally {
       setLoading(false);
     }
-  }
+  }, [maxUploadBytes]);
 
   useEffect(() => {
-    async function loadSample() {
-      try {
-        const response = await fetch("/data/lagos_pilot_simulated.csv");
-        const blob = await response.blob();
-        await analyse(new File([blob], "lagos_pilot_simulated.csv", { type: "text/csv" }), "simulated");
-      } catch {
-        setError("Start the Estuara API on port 8000, then refresh this page.");
+    let cancelled = false;
+    fetchHealth()
+      .then((health) => {
+        if (!cancelled) setMaxUploadBytes(health.limits.max_upload_bytes);
+      })
+      .catch(() => undefined); // The analysis request below reports connectivity problems.
+    loadSampleFile()
+      .then((file) => {
+        if (!cancelled) return analyse(file, "simulated", DEFAULT_SETTINGS);
+      })
+      .catch((reason) => {
+        if (cancelled) return;
+        setError(toErrorState(reason));
         setLoading(false);
-      }
-    }
-    void loadSample();
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Load the bundled sample once on first render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selected = useMemo(
@@ -73,16 +105,21 @@ export default function Home() {
 
   function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) void analyse(file, "user-provided");
+    // Reset so choosing the same file again still triggers a new analysis.
+    event.target.value = "";
+    if (file) void analyse(file, "user-provided", settings);
   }
 
+  const uploadLimit = maxUploadBytes ? `${(maxUploadBytes / 1024 / 1024).toFixed(0)} MB` : "the deployment limit";
   const metrics = [
-    ["Observed vessels", analysis?.summary.vessels ?? "—", "registered IDs"],
-    ["Trips reconstructed", analysis?.summary.trips ?? "—", "from time gaps"],
-    ["Distance observed", analysis ? `${analysis.summary.total_distance_km.toFixed(1)} km` : "—", "across all trips"],
+    ["Observed vessels", analysis?.summary.vessels ?? "—", "distinct vessel IDs"],
+    ["Movement segments", analysis?.summary.trips ?? "—", "time-gap split · not verified journeys"],
+    ["Distance observed", analysis ? `${analysis.summary.total_distance_km.toFixed(1)} km` : "—", "excludes flagged position jumps"],
     ["Stops detected", analysis?.summary.detected_stops ?? "—", "threshold-based"],
     ["Landing candidates", analysis?.landing_points.length ?? "—", "unverified, DBSCAN"],
   ];
+  const warningCount = analysis?.warnings.length ?? 0;
+  const transformationCount = analysis?.provenance.transformations.length ?? 0;
 
   return (
     <main className="app-frame">
@@ -99,29 +136,51 @@ export default function Home() {
           ))}
         </nav>
         <div className="phase-card"><span>FOUNDATION RELEASE</span><strong>Observe</strong><p>GPS evidence before electrification assumptions.</p><div><i /></div><small>1 of 4 stages active</small></div>
-        <div className="user"><span>RM</span><div><strong>Razaq Muiz</strong><small>Project lead</small></div></div>
+        <div className="user"><span>TP</span><div><strong>Team preview</strong><small>Demo workspace · no sign-in</small></div></div>
       </aside>
 
       <section className="workspace">
-        <header><div><span className="crumb">ESTUARA / MOBILITY</span><h1>Marine movement, made legible.</h1><p>Reconstruct ferry operations from GPS observations before planning electric routes and charging infrastructure.</p></div><button className="upload-button" onClick={() => setUploadOpen(true)}>＋ Import GPS data</button></header>
+        <header>
+          <div><span className="crumb">ESTUARA / MOBILITY</span><h1>Marine movement, made legible.</h1><p>Reconstruct ferry operations from GPS observations before planning electric routes and charging infrastructure.</p></div>
+          <div className="header-actions">
+            <button className="secondary-button" onClick={() => setSettingsOpen(true)} disabled={!dataset || loading}>Analysis settings</button>
+            <button className="upload-button" onClick={() => setUploadOpen(true)}>＋ Import GPS data</button>
+          </div>
+        </header>
 
-        {error && <div className="error-banner"><strong>Connection issue</strong><span>{error}</span></div>}
+        {error && (
+          <div className={`error-banner ${error.kind}`} role="alert">
+            <strong>{ERROR_TITLES[error.kind]}</strong>
+            <span>{error.message}{analysis && " The previous results are still shown."}</span>
+            <button onClick={() => setError(null)} aria-label="Dismiss">×</button>
+          </div>
+        )}
+        {analysis && (
+          <div className="quality-summary">
+            <span className={`status ${analysis.provenance.data_status === "simulated" ? "simulated" : ""}`}>{analysis.provenance.data_status}</span>
+            <span>{analysis.provenance.source_filename}</span>
+            <span>{analysis.provenance.input_rows} rows · {analysis.provenance.rejected_rows} rejected · {analysis.provenance.flagged_rows} flagged</span>
+            <a href="#quality">{warningCount} {warningCount === 1 ? "warning" : "warnings"} · {transformationCount} {transformationCount === 1 ? "transformation" : "transformations"} →</a>
+            {loading && <span className="analysing"><i className="loader small" /> Re-analysing…</span>}
+          </div>
+        )}
+
         <section className="metric-grid">
-          {metrics.map(([label, value, note], index) => <article key={label}><div><span>{label}</span><small>0{index + 1}</small></div><strong>{loading ? <i className="loader" /> : value}</strong><p>{note}</p></article>)}
+          {metrics.map(([label, value, note], index) => <article key={label}><div><span>{label}</span><small>0{index + 1}</small></div><strong>{loading && !analysis ? <i className="loader" /> : value}</strong><p>{note}</p></article>)}
         </section>
 
         <section className="analysis-grid">
-          <article className="map-panel"><div className="panel-heading"><div><span>NETWORK VIEW</span><h2>Observed movement</h2></div><div className="legend"><i className="route-line" /> Reconstructed route <i className="stop-dot" /> Detected stop <i className="landing-dot" /> Landing candidate (unverified)</div></div><MobilityMap analysis={analysis} selectedTrip={selectedTrip} /></article>
-          <article className="evidence-panel"><div className="panel-heading"><div><span>TRIP EVIDENCE</span><h2>{selected?.trip_id ?? "No trip selected"}</h2></div><span className="status">{analysis?.provenance.data_status ?? "waiting"}</span></div>
+          <article className="map-panel"><div className="panel-heading"><div><span>NETWORK VIEW</span><h2>Observed movement</h2></div><div className="legend"><i className="route-line" /> Reconstructed route <i className="stop-dot" /> Detected stop <i className="landing-dot" /> Landing candidate (unverified)</div></div><MobilityMap analysis={analysis} selectedTrip={selectedTrip} onSelectTrip={setSelectedTrip} /></article>
+          <article className="evidence-panel"><div className="panel-heading"><div><span>SEGMENT EVIDENCE</span><h2>{selected?.trip_id ?? "No segment selected"}</h2></div><span className="status">{analysis?.provenance.data_status ?? "waiting"}</span></div>
             {selected ? <>
               <div className="trip-hero"><span>{selected.vessel_id}</span><strong>{selected.distance_km.toFixed(2)} km</strong><p>{new Date(selected.started_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} → {new Date(selected.ended_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</p></div>
-              <dl><div><dt>Duration</dt><dd>{selected.duration_minutes.toFixed(0)} min</dd></div><div><dt>Average speed</dt><dd>{selected.average_speed_knots.toFixed(1)} kn</dd></div><div><dt>Peak speed</dt><dd>{selected.maximum_speed_knots.toFixed(1)} kn</dd></div><div><dt>Observations</dt><dd>{selected.observation_count}</dd></div></dl>
-              <div className="evidence-note"><span>METHOD NOTE</span><p>Trips split after a 30-minute observation gap. Stops require low-speed observations lasting at least two minutes.</p></div>
-            </> : <p className="empty">Import telemetry to create trip evidence.</p>}
+              <dl><div><dt>Duration</dt><dd>{selected.duration_minutes.toFixed(0)} min</dd></div><div><dt>Average speed</dt><dd>{selected.average_speed_knots.toFixed(1)} kn</dd></div><div><dt>Peak speed</dt><dd>{selected.maximum_speed_knots.toFixed(1)} kn</dd></div><div><dt>Observations</dt><dd>{selected.observation_count}</dd></div><div><dt>Stops</dt><dd>{selected.stop_count}</dd></div></dl>
+            </> : <p className="empty">Import telemetry, then select a segment in the table or on the map.</p>}
+            {analysis && <div className="evidence-note"><span>METHOD NOTE</span><p>{methodNote(analysis.settings)}</p></div>}
           </article>
         </section>
 
-        <section className="trips-panel"><div className="panel-heading"><div><span>RECONSTRUCTED TRIPS</span><h2>Operational record</h2></div><p>{analysis?.provenance.accepted_rows ?? 0} accepted observations · {analysis?.provenance.rejected_rows ?? 0} rejected</p></div><div className="table-wrap"><table><thead><tr><th>Trip</th><th>Vessel</th><th>Start</th><th>Duration</th><th>Distance</th><th>Avg. speed</th><th>Stops</th><th /></tr></thead><tbody>{analysis?.trips.map((trip) => <tr className={selectedTrip === trip.trip_id ? "selected" : ""} key={trip.trip_id} onClick={() => setSelectedTrip(trip.trip_id)}><td><strong>{trip.trip_id}</strong></td><td>{trip.vessel_id}</td><td>{new Date(trip.started_at).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"})}</td><td>{trip.duration_minutes.toFixed(0)} min</td><td>{trip.distance_km.toFixed(2)} km</td><td>{trip.average_speed_knots.toFixed(1)} kn</td><td>{trip.stop_count}</td><td>→</td></tr>)}</tbody></table></div></section>
+        <section className="trips-panel"><div className="panel-heading"><div><span>MOVEMENT SEGMENTS</span><h2>Operational record</h2></div><p>{analysis?.summary.observations ?? 0} observations used · {analysis?.provenance.rejected_rows ?? 0} rejected · {analysis?.quality.excluded_from_geometry_rows ?? 0} excluded from geometry · segments are time-gap splits, not verified terminal-to-terminal journeys</p></div><div className="table-wrap"><table><thead><tr><th>Segment</th><th>Vessel</th><th>Start</th><th>Duration</th><th>Distance</th><th>Avg. speed</th><th>Stops</th><th /></tr></thead><tbody>{analysis?.trips.map((trip) => <tr className={selectedTrip === trip.trip_id ? "selected" : ""} key={trip.trip_id} onClick={() => setSelectedTrip(trip.trip_id)}><td><strong>{trip.trip_id}</strong></td><td>{trip.vessel_id}</td><td>{new Date(trip.started_at).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"})}</td><td>{trip.duration_minutes.toFixed(0)} min</td><td>{trip.distance_km.toFixed(2)} km</td><td>{trip.average_speed_knots.toFixed(1)} kn</td><td>{trip.stop_count}</td><td>→</td></tr>)}</tbody></table></div></section>
 
         <section className="landing-panel">
           <div className="panel-heading">
@@ -140,7 +199,7 @@ export default function Home() {
               <thead><tr><th>Candidate</th><th>Visits</th><th>Trips</th><th>Vessels</th><th>Mean dwell</th><th>Evidence score</th><th>Status</th></tr></thead>
               <tbody>
                 {analysis?.landing_points.length ? analysis.landing_points.map((candidate) => (
-                  <tr key={candidate.candidate_id}>
+                  <tr key={candidate.candidate_id} className="static-row">
                     <td><strong>{candidate.candidate_id}</strong></td>
                     <td>{candidate.visit_count}</td>
                     <td>{candidate.trip_count}</td>
@@ -149,14 +208,17 @@ export default function Home() {
                     <td>{candidate.evidence_score.toFixed(2)}</td>
                     <td><span className="unverified-pill">Unverified</span></td>
                   </tr>
-                )) : <tr><td colSpan={7} className="empty">No recurring landing-point candidates at the current radius and minimum-visit settings.</td></tr>}
+                )) : <tr className="static-row"><td colSpan={7} className="empty">No recurring landing-point candidates at the current radius and minimum-visit settings.</td></tr>}
               </tbody>
             </table>
           </div>
         </section>
+
+        <div id="quality"><QualityPanel analysis={analysis} /></div>
       </section>
 
-      {uploadOpen && <div className="modal-backdrop" onMouseDown={() => setUploadOpen(false)}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setUploadOpen(false)}>×</button><span className="eyebrow">IMPORT TELEMETRY</span><h2>Add GPS observations</h2><p>Upload one CSV with timestamp, latitude, longitude, vessel ID and optional speed. The source remains labelled as user-provided.</p><label className="dropzone"><input type="file" accept=".csv,text/csv" onChange={upload} /><strong>Choose a CSV file</strong><span>Maximum 50 MB · raw data is not modified</span></label><div className="schema"><strong>Accepted column aliases</strong><code>timestamp · latitude/lat · longitude/lng · speed/sog · vessel_id/boat_id</code></div></section></div>}
+      {uploadOpen && <div className="modal-backdrop" onMouseDown={() => setUploadOpen(false)}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setUploadOpen(false)} aria-label="Close">×</button><span className="eyebrow">IMPORT TELEMETRY</span><h2>Add GPS observations</h2><p>Upload one CSV with timestamp, latitude, longitude, vessel ID and optional speed. The source is labelled user-provided and analysed with the current settings. Files are processed in memory and not stored.</p><label className="dropzone"><input type="file" accept=".csv,text/csv" onChange={upload} disabled={loading} /><strong>{loading ? "Analysing…" : "Choose a CSV file"}</strong><span>Maximum {uploadLimit} · raw data is not modified</span></label><div className="schema"><strong>Accepted column aliases</strong><code>timestamp/time/datetime · latitude/lat · longitude/lon/lng · vessel_id/boat_id/device_id · speed/sog (optional, knots; derived from positions if absent)</code></div></section></div>}
+      {settingsOpen && dataset && <SettingsModal settings={settings} datasetName={dataset.file.name} onClose={() => setSettingsOpen(false)} onApply={(next) => void analyse(dataset.file, dataset.status, next)} />}
     </main>
   );
 }

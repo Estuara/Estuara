@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "lint": "eslint ."
+    "sync-sample": "node scripts/sync-sample.mjs",
+    "dev": "node scripts/sync-sample.mjs && next dev",
+    "build": "node scripts/sync-sample.mjs && next build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "maplibre-gl": "^5.7.1",
@@ -14,12 +16,13 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@types/node": "^22.15.3",
     "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.15.3",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "eslint": "^9.24.0",
     "eslint-config-next": "16.3.5",
+    "playwright-core": "1.56.1",
     "typescript": "^5.8.3"
   }
 }

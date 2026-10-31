@@ -1,0 +1,38 @@
+{
+  // Estuara team preview: one Worker, one URL.
+  // - /api/* and /health run the FastAPI app on Python Workers (Pyodide).
+  // - Everything else is the statically exported Next.js app, served from
+  //   Workers Static Assets without invoking Python.
+  // Build the web app first (see docs/DEPLOYMENT.md), then from apps/api:
+  //   uv run pywrangler deploy
+  "$schema": "../web/node_modules/wrangler/config-schema.json",
+  "name": "estuara-preview",
+  "main": "src/worker.py",
+  // Python 3.14 runtime (default for compatibility dates from 2026-09-08).
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["python_workers"],
+  "assets": {
+    "directory": "../web/out",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*", "/health"]
+  },
+  // Analysis of the 992-row sample needs far more than the Free plan's
+  // 10 ms CPU per request. This requires the Workers Paid plan.
+  "limits": {
+    "cpu_ms": 60000
+  },
+  "vars": {
+    "ESTUARA_ENV": "preview",
+    // Kept well below Cloudflare's 100 MB request limit because the whole
+    // CSV, its parsed frame and the response must fit in a 128 MB isolate.
+    "ESTUARA_MAX_UPLOAD_MB": "10",
+    "ESTUARA_MAX_ROWS": "200000",
+    // Same-origin deployment needs no CORS. Set a comma-separated list only
+    // if a separately hosted frontend must call this API.
+    "ESTUARA_ALLOWED_ORIGINS": ""
+  },
+  "observability": {
+    "enabled": true
+  }
+}
