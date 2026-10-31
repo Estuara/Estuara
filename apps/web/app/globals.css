@@ -60,6 +60,8 @@ header p { max-width: 720px; margin: 0; color: var(--muted); font-size: 13px; li
 .secondary-button:hover:not(:disabled) { border-color: #9cc4bf; }
 .secondary-button:disabled, .upload-button:disabled { opacity: .5; cursor: not-allowed; }
 .quality-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: -12px 0 18px; color: var(--muted); font-size: 10px; }
+
+.connecting-note { display: flex; align-items: center; gap: 8px; margin: -12px 0 18px; padding: 9px 14px; border: 1px solid var(--line, #d8e2e0); border-radius: 7px; background: #f2faf8; color: #145a54; font-size: 11px; }
 .quality-summary a { color: var(--teal); font-weight: 700; text-decoration: none; }
 .quality-summary a:hover { text-decoration: underline; }
 .analysing { display: inline-flex; align-items: center; gap: 6px; color: var(--teal-dark); }

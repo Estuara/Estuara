@@ -1,11 +1,11 @@
-# Deploying the Estuara team preview to Cloudflare
+﻿# Deploying the Estuara team preview to Cloudflare
 
 > **Status as of 2026-10-31:** deployment was attempted against the
 > `Info@spatialcrestco.com` Cloudflare account, which is on the **Free** plan,
 > and is blocked: (1) `limits.cpu_ms` is rejected on the Free plan (API error
 > `100328`, "CPU limits are not supported for the Free plan"), and (2) the
 > verified bundle is 9.3 MB gzip against the Free plan's 3 MB compressed
-> Worker limit. Everything short of the live URL is verified — the upload,
+> Worker limit. Everything short of the live URL is verified â€” the upload,
 > bundle and static assets all succeed, and the full drill ran locally through
 > `wrangler dev` (the same workerd runtime) in
 > `apps/web/scripts/smoke-tests.mjs`. Upgrading the account to Workers Paid is
@@ -18,10 +18,10 @@ statically exported Next.js app in `apps/web/out`, which includes the bundled
 sample CSV under `/data/`).
 
 ```text
-                    ┌──────────────── estuara-preview.<subdomain>.workers.dev ────────────────┐
-  Browser  ────────►│  Static Assets (apps/web/out)                     /, /data/*.csv, ...   │
-                    │  Python Workers (Pyodide + FastAPI, asgi adapter) /api/*, /health       │
-                    └─────────────────────────────────────────────────────────────────────────┘
+                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ estuara-preview.<subdomain>.workers.dev â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+  Browser  â”€â”€â”€â”€â”€â”€â”€â”€â–ºâ”‚  Static Assets (apps/web/out)                     /, /data/*.csv, ...   â”‚
+                    â”‚  Python Workers (Pyodide + FastAPI, asgi adapter) /api/*, /health       â”‚
+                    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ## Why this architecture
@@ -65,7 +65,7 @@ sample CSV under `/data/`).
    This copies the canonical sample (`data/samples/lagos_pilot_simulated.csv`,
    the 992-observation file used by tests and analysis) into `public/data/`,
    then exports the app to `apps/web/out`. Never edit `public/data/` directly;
-   it is generated and git-ignored — edit the canonical sample instead.
+   it is generated and git-ignored â€” edit the canonical sample instead.
 
 2. **Deploy from the API directory** (the Worker config owns the whole stack):
 
@@ -92,7 +92,7 @@ To remove the preview: `uv run pywrangler delete` (or `npx wrangler delete`).
 
 ## Configuration
 
-Everything is set in `apps/api/wrangler.jsonc` as Worker vars — there are no
+Everything is set in `apps/api/wrangler.jsonc` as Worker vars â€” there are no
 secrets to create for the preview:
 
 | Binding | Purpose | Preview value |
@@ -121,12 +121,12 @@ cd ../api && npx wrangler dev       # real workerd runtime on 127.0.0.1:8787
 
 Smoke-test checklist used for both local and deployed rehearsals:
 
-- `GET /` → 200 `text/html`
-- `GET /data/lagos_pilot_simulated.csv` → 200, 53,125 bytes
-- `GET /api/v1/health` → `"status":"ok"`
-- `POST /api/v1/mobility/analyse` with the sample → summary totals match the
+- `GET /` â†’ 200 `text/html`
+- `GET /data/lagos_pilot_simulated.csv` â†’ 200, 53,125 bytes
+- `GET /api/v1/health` â†’ `"status":"ok"`
+- `POST /api/v1/mobility/analyse` with the sample â†’ summary totals match the
   documented baseline (6 vessels / 80 trips / 152 stops / 4 candidates)
-- malformed CSV upload → structured `{"detail":{"code":...}}` error, HTTP 422
+- malformed CSV upload â†’ structured `{"detail":{"code":...}}` error, HTTP 422
 
 ## Known deployment limitations
 
@@ -142,3 +142,95 @@ Smoke-test checklist used for both local and deployed rehearsals:
 - **Basemap dependency.** The map loads OpenFreeMap vector tiles from the
   public internet. If tiles are unreachable the map degrades to plain water
   background with route geometry still visible.
+
+## ZERO-COST DEPLOYMENT (Cloudflare Pages Free + Render Free)
+
+A no-spend alternative to the single-Worker architecture above: the frontend
+runs on **Cloudflare Pages (Free)**, the existing FastAPI service on a
+**Render Free Web Service**, both on their free `*.pages.dev` /
+`*.onrender.com` subdomains. The single-Worker `pywrangler` flow is preserved
+above as the preferred paid path; nothing in this section removes it.
+
+```text
+Browser â”€â”€â–º https://estuara-preview.pages.dev      (Cloudflare Pages, static export)
+                â”‚  fetch /api/v1/*  (cross-origin, CORS allow-listed)
+                â–¼
+            https://estuara-api.onrender.com       (Render Free, uvicorn + FastAPI)
+```
+
+### Files
+
+- `apps/api/requirements.txt` â€” runtime dependencies only (mirrors
+  `pyproject.toml` ranges; dev tools excluded) for Render's plain-pip build.
+- `render.yaml` (repo root) â€” Render blueprint: Python 3.13, `pip install
+  -r requirements.txt`, `uvicorn estuara_api.main:app --host 0.0.0.0 --port
+  $PORT`, health check `/api/v1/health`.
+- The Workers config (`apps/api/wrangler.jsonc`, `src/worker.py`,
+  `pylock.toml`) is untouched.
+
+### Frontend (Cloudflare Pages)
+
+The static export (`apps/web/out`) is deployed as-is â€” no Pages Functions are
+added, so nothing new runs at the edge. The API base URL is compiled in at
+build time through `NEXT_PUBLIC_ESTUARA_API_URL` (read by
+`apps/web/lib/api.ts`).
+
+### Backend (Render Free)
+
+Same FastAPI app as everywhere else: CORS is already environment-driven
+(`ESTUARA_ALLOWED_ORIGINS`, read per request by `ConfiguredCORSMiddleware`),
+limits stay environment-driven (`ESTUARA_MAX_UPLOAD_MB`, `ESTUARA_MAX_ROWS`),
+the health endpoints (`/health`, `/api/v1/health`) are unchanged, and
+uploaded CSVs are processed in memory only â€” nothing is written to disk or a
+database, so there is no persistence to secure.
+
+### Free-tier limitations (documented for the team)
+
+- **Render Free sleeps after ~15 minutes idle.** The next request can take
+  30-60 s to first response while the instance boots. The interface now polls
+  `/api/v1/health` before the automatic first analysis and shows a
+  "connecting" notice; manual uploads show the same cold-start hint in the
+  connectivity banner. Requests may need a retry.
+- **Spin-down state:** my free tier restarts wipe the in-memory state (the
+  app is stateless by design; nothing to lose).
+- **Render Free is 512 MB RAM / shared CPU.** Upload limits (10 MB /
+  200,000 rows) are chosen well inside that budget; analysing multiple large
+  concurrent uploads is out of scope for a preview.
+- **Same Render free instance allows 750 instance-hours/month,** which is
+  plenty for one service but means a second free service would share the
+  budget.
+- **`*.pages.dev` / `*.onrender.com` subdomains** are shared public
+  namespaces: do not colocate sensitive branding or rely on them for access
+  control. Anyone with the URL can view the sample preview (simulated data
+  only â€” do not point it at real operational datasets without adding
+  authentication).
+
+### Deployment steps
+
+1. Push this repository to a shared Git remote; Render builds from
+   `render.yaml` in the repo (the blueprint references `apps/api`).
+2. Render â†’ New â†’ Blueprint â†’ select the repo. On first apply, Render
+   prompts for `ESTUARA_ALLOWED_ORIGINS`; fill in the Pages URL from step 4
+   (initially `https://estuara-preview.pages.dev`).
+3. Wait for the build; verify `GET /api/v1/health` returns
+   `{"status":"ok","runtime":"python",...}` on the `*.onrender.com` URL.
+4. Build the frontend against that URL and deploy Pages:
+
+   ```bash
+   cd apps/web
+   NEXT_PUBLIC_ESTUARA_API_URL=https://<service>.onrender.com pnpm build
+   npx wrangler pages deploy out --project-name estuara-preview
+   ```
+
+5. Verify in a browser: the Pages URL auto-loads the sample, the map /
+   metric / tables render, and uploads work cross-origin.
+
+### Verification checklist (live URLs)
+
+Same rehearsal as the Worker smoke test: health endpoint, sample analysis
+totals (6/80/152/4), structured error for a malformed CSV, CORS preflight
+from the Pages origin, map + basemap render, and the 11-check browser smoke
+script pointed at the live Pages URL (`BASE_URL=https://... node
+scripts/smoke-tests.mjs`).
+
+

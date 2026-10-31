@@ -39,6 +39,11 @@ export const SETTING_FIELDS: {
 
 export type ErrorKind = "connectivity" | "malformed_file" | "validation" | "api_failure";
 
+// Render's free plan sleeps an idle service; the next request can take tens
+// of seconds to answer while the instance boots.
+export const COLD_START_HINT =
+  "On free hosting the analysis service may be waking from standby, which can take up to a minute - wait a moment and try again.";
+
 export class AnalysisError extends Error {
   constructor(
     readonly kind: ErrorKind,
@@ -72,9 +77,9 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
     return await fetch(`${API_URL}${path}`, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   } catch (reason) {
     if (reason instanceof DOMException && reason.name === "TimeoutError") {
-      throw new AnalysisError("connectivity", `No response from the analysis service within ${REQUEST_TIMEOUT_MS / 1000} seconds.`);
+      throw new AnalysisError("connectivity", `No response from the analysis service within ${REQUEST_TIMEOUT_MS / 1000} seconds. ${COLD_START_HINT}`);
     }
-    throw new AnalysisError("connectivity", "The analysis service did not respond. Check your connection, or that the API is running, and try again.");
+    throw new AnalysisError("connectivity", `The analysis service did not respond. ${COLD_START_HINT}`);
   }
 }
 

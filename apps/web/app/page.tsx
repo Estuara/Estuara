@@ -54,6 +54,7 @@ export default function Home() {
   const [settings, setSettings] = useState<AnalysisSettings>(DEFAULT_SETTINGS);
   const [dataset, setDataset] = useState<{ file: File; status: DataStatus } | null>(null);
   const [maxUploadBytes, setMaxUploadBytes] = useState<number | undefined>(undefined);
+  const [reconnecting, setReconnecting] = useState(false);
 
   const analyse = useCallback(async (file: File, status: DataStatus, nextSettings: AnalysisSettings) => {
     setLoading(true);
@@ -75,26 +76,45 @@ export default function Home() {
     }
   }, [maxUploadBytes]);
 
+  const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
   useEffect(() => {
     let cancelled = false;
-    fetchHealth()
-      .then((health) => {
-        if (!cancelled) setMaxUploadBytes(health.limits.max_upload_bytes);
-      })
-      .catch(() => undefined); // The analysis request below reports connectivity problems.
-    loadSampleFile()
-      .then((file) => {
-        if (!cancelled) return analyse(file, "simulated", DEFAULT_SETTINGS);
-      })
-      .catch((reason) => {
+    void (async () => {
+      // Free hosting (Render) sleeps an idle API; poll the health check so
+      // the automatic first analysis also covers the wake-up delay instead
+      // of failing while the service is still starting.
+      for (let attempt = 0; !cancelled; attempt++) {
+        try {
+          const health = await fetchHealth();
+          if (cancelled) return;
+          setMaxUploadBytes(health.limits.max_upload_bytes);
+          setReconnecting(false);
+          break;
+        } catch {
+          if (attempt >= 6) {
+            setError(toErrorState(new AnalysisError("connectivity", "The analysis service did not come up after several attempts.")));
+            setLoading(false);
+            return;
+          }
+          setReconnecting(true);
+          await wait(8_000);
+        }
+      }
+      if (cancelled) return;
+      try {
+        const file = await loadSampleFile();
+        if (!cancelled) await analyse(file, "simulated", DEFAULT_SETTINGS);
+      } catch (reason) {
         if (cancelled) return;
         setError(toErrorState(reason));
         setLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
-    // Load the bundled sample once on first render.
+    // Auto-analyse the bundled sample once, after the API is reachable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -154,6 +174,9 @@ export default function Home() {
             <span>{error.message}{analysis && " The previous results are still shown."}</span>
             <button onClick={() => setError(null)} aria-label="Dismiss">×</button>
           </div>
+        )}
+        {reconnecting && !error && (
+          <div className="connecting-note" role="status"><i className="loader small" /> Connecting to the analysis service… free hosting can take up to a minute to wake it.</div>
         )}
         {analysis && (
           <div className="quality-summary">

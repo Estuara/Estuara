@@ -1,0 +1,29 @@
+# Render blueprint for the zero-budget Estuara preview.
+# Frontend deploys separately to Cloudflare Pages (see docs/DEPLOYMENT.md).
+# Render reads service settings from this file; the only thing that must be
+# set once the Pages URL exists is ESTUARA_ALLOWED_ORIGINS (dashboard,
+# never committed).
+services:
+  - type: web
+    name: estuara-api
+    runtime: python
+    rootDir: apps/api
+    # executes from apps/api (rootDir); python is on Render's default image
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn estuara_api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.7"
+      # Upload sizing mirrors the Workers config: refused before the body is
+      # read, so a 512 MB free instance is never buried under a huge POST.
+      - key: ESTUARA_MAX_UPLOAD_MB
+        value: "10"
+      - key: ESTUARA_MAX_ROWS
+        value: "200000"
+      # The frontend origin (https://<project>.pages.dev). `sync: false`
+      # prompts for it on the first deploy; it is a URL, not a secret.
+      - key: ESTUARA_ALLOWED_ORIGINS
+        sync: false
+    # Free plan: no database addition on purpose - the preview is stateless.
