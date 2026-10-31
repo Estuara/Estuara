@@ -8,8 +8,10 @@ services:
     name: estuara-api
     runtime: python
     rootDir: apps/api
-    # executes from apps/api (rootDir); python is on Render's default image
-    buildCommand: pip install -r requirements.txt
+    # executes from apps/api (rootDir). -r installs the runtime deps; the
+    # second install builds and installs the estuara_api package itself, so
+    # uvicorn can import it (the package lives in src/, not on sys.path).
+    buildCommand: pip install -r requirements.txt && pip install --no-deps .
     startCommand: uvicorn estuara_api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/v1/health
     plan: free
